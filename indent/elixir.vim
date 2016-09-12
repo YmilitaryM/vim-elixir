@@ -53,7 +53,7 @@ function! s:indent_opened_symbols(ind)
     if s:pending_parenthesis > 0
           \ && s:last_line !~ '^\s*def'
           \ && s:last_line !~ s:arrow
-      let b:old_ind = a:ind
+      let b:elixir_ind_reasons.opened_symbol = a:ind
       return matchend(s:last_line, '(')
       " if start symbol is followed by a character, indent based on the
       " whitespace after the symbol, otherwise use the default shiftwidth
@@ -72,7 +72,8 @@ endfunction
 
 function! s:deindent_opened_symbols(ind)
   if s:opened_symbol < 0
-    let ind = get(b:, 'old_ind', a:ind + (s:opened_symbol * &sw))
+    let ind = get(b:elixir_ind_reasons, 'opened_symbol', a:ind + (s:opened_symbol * &sw))
+    let b:elixir_ind_reasons.opened_symbol = 0
     let ind = float2nr(ceil(floor(ind)/&sw)*&sw)
     return ind <= 0 ? 0 : ind
   else
@@ -83,7 +84,7 @@ endfunction
 function! s:indent_pipeline(ind)
   if s:current_line =~ s:starts_with_pipeline
         \ && s:last_line =~ '^[^=]\+=.\+$'
-    let b:old_ind = indent(s:last_line_ref)
+    let b:elixir_ind_reasons.pipeline = indent(s:last_line_ref)
     " if line starts with pipeline
     " and last line is an attribution
     " indents pipeline in same level as attribution
@@ -108,7 +109,9 @@ function! s:indent_after_pipeline(ind)
           \ || s:current_line =~ s:starts_with_pipeline
       return indent(s:last_line_ref)
     elseif s:last_line !~ s:indent_keywords
-      return b:old_ind
+      let ind = b:elixir_ind_reasons.pipeline
+      let b:elixir_ind_reasons.pipeline = 0
+      return ind
     else
       return a:ind
     end
@@ -119,7 +122,7 @@ endfunction
 
 function! s:indent_assignment(ind)
   if s:last_line =~ s:ending_with_assignment
-    let b:old_ind = indent(s:last_line_ref) " FIXME: side effect
+    let b:elixir_ind_reasons.pipeline = indent(s:last_line_ref)
     return a:ind + &sw
   else
     return a:ind
@@ -168,6 +171,24 @@ function! s:indent_arrow(ind)
   end
 endfunction
 
+function! s:indent_with(ind)
+  let with = '\s\+with\s\+'
+
+  if s:current_line =~ with
+    let b:elixir_ind_reasons.with = matchend(s:current_line, with)
+    let b:elixir_ind_reasons.before_with = a:ind
+    return a:ind
+  elseif s:last_line =~ ',\s*$' && b:elixir_ind_reasons.with > 0
+    return b:elixir_ind_reasons.with
+  elseif s:last_line !~ ',\s*$' && b:elixir_ind_reasons.with > 0
+    let b:elixir_ind_reasons.with = 0
+    return b:elixir_ind_reasons.before_with
+  else
+    let b:elixir_ind_reasons.with = 0
+    return a:ind
+  end
+endfunction
+
 function! GetElixirIndent()
   let s:current_line_ref = v:lnum
   let s:last_line_ref = prevnonblank(s:current_line_ref - 1)
@@ -175,6 +196,7 @@ function! GetElixirIndent()
   let s:last_line = getline(s:last_line_ref)
   let s:pending_parenthesis = 0
   let s:opened_symbol = 0
+  let b:elixir_ind_reasons = get(b:, 'elixir_ind_reasons', {})
 
   if s:last_line !~ s:arrow
     let splitted_line = split(s:last_line, '\zs')
@@ -203,6 +225,7 @@ function! GetElixirIndent()
     let ind = s:indent_keywords_and_ending_symbols(ind)
     let ind = s:deindent_keywords(ind)
     let ind = s:deindent_ending_symbols(ind)
+    let ind = s:indent_with(ind)
     let ind = s:indent_arrow(ind)
     return ind
   end
